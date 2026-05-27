@@ -15,6 +15,7 @@
 """Client initialization for the Google Analytics APIs."""
 
 import contextlib
+import os
 import subprocess
 import threading
 from importlib import metadata
@@ -28,6 +29,7 @@ from google.analytics import (
     data_v1alpha,
 )
 from google.api_core.gapic_v1.client_info import ClientInfo
+from google.oauth2 import service_account
 
 
 def _get_package_version_with_fallback():
@@ -76,13 +78,38 @@ def prevent_stdio_inheritance():
 
 
 def _get_credentials():
+    """Returns credentials for Google Analytics API calls.
+
+    Resolution order:
+
+    1. **Domain-Wide Delegation (DWD)** — if both `GOOGLE_APPLICATION_CREDENTIALS`
+       (path to a service-account JSON key) and `GOOGLE_DWD_SUBJECT` (email
+       of the user to impersonate) env vars are set, load the SA key and
+       apply `.with_subject(GOOGLE_DWD_SUBJECT)` for DWD impersonation. The
+       SA's client_id must be granted DWD with the analytics.readonly scope
+       in the impersonated user's Workspace admin. Use this path in
+       restrictive Workspace orgs where the gcloud OAuth client is blocked
+       or where SA emails cannot be added directly to GA4 property access.
+    2. **Application Default Credentials (ADC)** — fallback to standard
+       `google.auth.default()`. Uses gcloud user credentials, GCE metadata,
+       or a SA key referenced by `GOOGLE_APPLICATION_CREDENTIALS` *without*
+       impersonation.
+    """
     global _CREDENTIALS
     # Expected to be called under _client_lock
     if _CREDENTIALS is None:
-        with prevent_stdio_inheritance():
-            _CREDENTIALS, _ = google.auth.default(
-                scopes=[_READ_ONLY_ANALYTICS_SCOPE]
-            )
+        sa_key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        dwd_subject = os.environ.get("GOOGLE_DWD_SUBJECT")
+        if sa_key_path and dwd_subject:
+            _CREDENTIALS = service_account.Credentials.from_service_account_file(
+                sa_key_path,
+                scopes=[_READ_ONLY_ANALYTICS_SCOPE],
+            ).with_subject(dwd_subject)
+        else:
+            with prevent_stdio_inheritance():
+                _CREDENTIALS, _ = google.auth.default(
+                    scopes=[_READ_ONLY_ANALYTICS_SCOPE]
+                )
     return _CREDENTIALS
 
 

@@ -115,6 +115,49 @@ following message. You'll need this for the next step!
 Credentials saved to file: [PATH_TO_CREDENTIALS_JSON]
 ```
 
+### Domain-Wide Delegation (DWD) — for restrictive Workspace orgs
+
+> This is a **fork addition** ([CatchDigitalInc/google-analytics-mcp](https://github.com/CatchDigitalInc/google-analytics-mcp))
+> on top of upstream googleanalytics/google-analytics-mcp. If your
+> Workspace blocks the gcloud OAuth client or rejects SA emails in
+> the GA4 Property Access UI, this path bypasses both.
+
+In some Google Workspace orgs, two things make the standard ADC path
+unusable:
+
+1. The gcloud OAuth client is blocked by Workspace policy (classified as
+   a Google app, can't be added to the third-party trust allowlist).
+2. Adding service-account emails directly to GA4 property access fails
+   with "This email doesn't match a Google Account."
+
+The fix is **Domain-Wide Delegation**: a service account impersonates a
+real Workspace user (e.g., your agency's master MCC account) for the
+`analytics.readonly` scope. Every API call is authorized as that user.
+
+**One-time setup:**
+
+1. Create a service account in your GCP project and download a JSON key
+   (`gcloud iam service-accounts create ...` then
+   `gcloud iam service-accounts keys create ...`).
+2. In your Workspace admin console: **Security → Access and data
+   control → API controls → Domain-wide delegation → Add new**. Use the
+   service account's numeric `client_id` (from the JSON key file) and
+   scope `https://www.googleapis.com/auth/analytics.readonly`.
+3. Grant the impersonated user (e.g., `mcc@yourdomain.com`) Viewer
+   access on the GA4 properties you want to query. The SA inherits via
+   impersonation; you do NOT add the SA email to GA4.
+
+**Configure the MCP** with both env vars:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
+export GOOGLE_DWD_SUBJECT=mcc@yourdomain.com
+```
+
+When both env vars are set, the MCP automatically uses DWD
+impersonation instead of standard ADC. If `GOOGLE_DWD_SUBJECT` is
+unset, behavior is unchanged from upstream (standard ADC).
+
 ### Configure Gemini
 
 1.  Install [Gemini
